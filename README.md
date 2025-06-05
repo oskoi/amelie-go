@@ -1,8 +1,16 @@
 # Amelie Driver for Go
 
-Amelie Driver is is an implementation of database/sql/driver interface.
+[Amelie](https://github.com/amelielabs/amelie) Driver is is an implementation of database/sql/driver interface.
 
-You only need to import the driver and can use the full database/sql API then. For example:
+## Installing
+
+```
+go get -u github.com/oskoi/amelie-go
+```
+
+## Example
+
+You only need to import the driver and can use the full database/sql API then.
 
 ```go
 package main
