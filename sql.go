@@ -713,7 +713,7 @@ type NativeSession struct {
 }
 
 func (s *NativeSession) ExecuteRaw(query []byte) *native.RequestResult {
-	return s.session.Execute(string(query))
+	return s.session.Execute(query)
 }
 
 func (s *NativeSession) Execute(_ context.Context, query []byte) ([]byte, error) {

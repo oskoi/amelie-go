@@ -25,9 +25,9 @@ var complete = purego.NewCallback(func(ptr unsafe.Pointer) {
 var (
 	amelie_init    func() uintptr
 	amelie_free    func(uintptr)
-	amelie_open    func(uintptr, string, int32, unsafe.Pointer) int32
+	amelie_open    func(uintptr, unsafe.Pointer, int32, unsafe.Pointer) int32
 	amelie_connect func(uintptr, uintptr) uintptr
-	amelie_execute func(uintptr, string, int32, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
+	amelie_execute func(uintptr, unsafe.Pointer, int32, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
 	amelie_wait    func(uintptr, int32, unsafe.Pointer) int32
 )
 
@@ -122,7 +122,7 @@ func (d *Driver) Open(url *url.URL) int32 {
 		b.Reset()
 	}
 
-	return amelie_open(d.amelie, path, int32(argc), unsafe.Pointer(unsafe.SliceData(argv)))
+	return amelie_open(d.amelie, unsafe.Pointer(cString(path)), int32(argc), unsafe.Pointer(unsafe.SliceData(argv)))
 }
 
 func (d *Driver) Connect() *Session {
@@ -169,12 +169,12 @@ func (r *RequestResult) Wait() ([]byte, int) {
 		return nil, int(rc)
 	}
 
-	return goStringBytesSized(result.data, int(result.dataSize)), int(rc)
+	return goStringBytes(result.data, int(result.dataSize)), int(rc)
 }
 
-func (s *Session) Execute(query string) *RequestResult {
+func (s *Session) Execute(query []byte) *RequestResult {
 	done := make(chan struct{})
-	req := amelie_execute(s.session, query, 0, nil, complete, unsafe.Pointer(&done))
+	req := amelie_execute(s.session, unsafe.Pointer(cByteString(query)), 0, nil, complete, unsafe.Pointer(&done))
 	return &RequestResult{req, done}
 }
 
@@ -195,10 +195,31 @@ func cString(name string) *byte {
 	return &bs[0]
 }
 
-func goStringBytesSized(c uintptr, size int) []byte {
+func cByteString(bs []byte) *byte {
+	if len(bs) == 0 {
+		bs = make([]byte, 1)
+		return &bs[0]
+	}
+	if bs[len(bs)-1] == '\x00' {
+		return &bs[0]
+	}
+	bs2 := make([]byte, len(bs)+1)
+	copy(bs2, bs)
+	return &bs2[0]
+}
+
+func goStringBytes(c uintptr, size int) []byte {
 	ptr := *(*unsafe.Pointer)(unsafe.Pointer(&c))
 	if ptr == nil {
 		return nil
+	}
+	if size == 0 {
+		for {
+			if *(*byte)(unsafe.Add(ptr, uintptr(size))) == '\x00' {
+				break
+			}
+			size++
+		}
 	}
 	bs := make([]byte, size)
 	copy(bs, unsafe.Slice((*byte)(ptr), size))
