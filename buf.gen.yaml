@@ -1,0 +1,16 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/oskoi/amelie-go/gen/pb
+      path: amelie
+plugins:
+  - remote: buf.build/grpc/go:v1.5.1
+    out: gen/pb
+    opt:
+      - paths=source_relative
+  - remote: buf.build/protocolbuffers/go
+    out: gen/pb
+    opt:
+      - paths=source_relative

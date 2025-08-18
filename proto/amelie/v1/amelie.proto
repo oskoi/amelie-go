@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package amelie.v1;
+
+option csharp_namespace = "Amelie.V1";
+option go_package = "amelie/v1";
+option java_multiple_files = true;
+option java_package = "amelie.v1";
+
+import "google/protobuf/struct.proto";
+
+service AmelieService {
+  rpc Execute(stream ExecuteRequest) returns (stream ExecuteResponse);
+}
+
+message ExecuteRequest {
+    repeated Query queries = 1;
+}
+
+message ExecuteResponse {
+    repeated Row rows = 1;
+}
+
+message Query {
+    string query = 1;
+    repeated google.protobuf.Value args = 2;
+}
+
+message Row {
+    map<string, google.protobuf.Value> cols = 1;
+}
