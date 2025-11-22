@@ -5,25 +5,34 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"sync"
 
 	_ "github.com/oskoi/amelie-go"
-	"github.com/oskoi/amelie-go/native"
 )
 
 func main() {
 	ctx := context.Background()
-	db, err := sql.Open("amelie", native.URL("data", // only for linux
-		"log_to_stdout", "false",
-		"wal_worker", "false",
-		"wal_sync_on_create", "false",
-		"wal_sync_on_close", "false",
-		"wal_sync_on_write", "false",
-		"checkpoint_sync", "false",
-		"frontends", "4",
-		"backends", "4",
-		"listen", "[]",
-	))
+
+	url := new(url.URL)
+	url.Scheme = "file"
+	url.Path = "data"
+	args := url.Query()
+	// args.Add("token", "12345") Authorization JSON Web Tokens
+	args.Add("mode", "native")
+	args.Add("format", "json-obj")
+	args.Add("log_to_stdout", "false")
+	args.Add("wal_worker", "false")
+	args.Add("wal_sync_on_create", "false")
+	args.Add("wal_sync_on_close", "false")
+	args.Add("wal_sync_on_write", "false")
+	args.Add("checkpoint_sync", "false")
+	args.Add("frontends", "4")
+	args.Add("backends", "4")
+	args.Add("listen", "[]")
+	url.RawQuery = args.Encode()
+
+	db, err := sql.Open("amelie", url.String())
 	// db, err := sql.Open("amelie", "http://localhost:3485")
 	handleErr(err, "open")
 	defer db.Close()
@@ -55,7 +64,7 @@ func main() {
 	}
 	wg.Wait()
 
-	rows, err := db.Query("select * from counters where id in (?, ?, ?, ?) format 'json-obj'", 0, 1, 2, 3)
+	rows, err := db.Query("select * from counters where id in (?, ?, ?, ?)", 0, 1, 2, 3)
 	handleErr(err, "query")
 
 	columns, err := rows.Columns()

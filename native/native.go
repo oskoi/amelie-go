@@ -12,7 +12,7 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// https://github.com/amelielabs/amelie/commit/ebaa52b6e248bf95076ba0f5f36302a9d7b62eac
+// amelie 0.7.0
 //
 //go:embed libs/libamelie.so
 var libamelieBytes []byte
@@ -26,7 +26,7 @@ var (
 	amelie_init    func() uintptr
 	amelie_free    func(uintptr)
 	amelie_open    func(uintptr, unsafe.Pointer, int32, unsafe.Pointer) int32
-	amelie_connect func(uintptr, uintptr) uintptr
+	amelie_connect func(uintptr, unsafe.Pointer) uintptr
 	amelie_execute func(uintptr, unsafe.Pointer, int32, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
 	amelie_wait    func(uintptr, int32, unsafe.Pointer) int32
 )
@@ -60,53 +60,39 @@ var registerLib = sync.OnceFunc(func() {
 	purego.RegisterLibFunc(&amelie_wait, libamelie, "amelie_wait")
 })
 
-func URL(path string, args ...string) string {
-	u := new(url.URL)
-	u.Scheme = "file"
-
-	parts := strings.Split(path, "/")
-	if len(parts) > 0 {
-		u.Host = parts[0]
-		u.Path = strings.Join(parts[1:], "/")
-	}
-
-	vs := make(url.Values)
-	last := len(args) - 1
-	for i := 0; i < len(args); i += 2 {
-		var value string
-		if i < last {
-			value = args[i+1]
-		}
-		vs.Set(args[i], value)
-	}
-	u.RawQuery = vs.Encode()
-
-	return u.String()
-}
-
 type amelieArg struct {
 	data     uintptr
 	dataSize uint64
 }
 
-func NewDriver() *Driver {
+func NewDriver(url string) *Driver {
 	registerLib()
 
 	return &Driver{
 		amelie: amelie_init(),
+		url:    url,
 	}
 }
 
 type Driver struct {
 	amelie uintptr
+	url    string
 }
 
-func (d *Driver) Open(url *url.URL) int32 {
-	path := url.Host + url.Path
+func (d *Driver) Open() int32 {
+	if !strings.HasPrefix(d.url, "file://") {
+		return amelie_open(d.amelie, nil, 0, nil)
+	}
+
+	url, err := url.Parse(d.url)
+	if err != nil {
+		panic(fmt.Sprintf("invalid url: %s", err))
+	}
+
+	dir := url.Host + url.Path
 	args := url.Query()
 	argc := len(args)
 	argv := make([]*byte, 0, argc)
-
 	b := strings.Builder{}
 	for k, vs := range args {
 		if len(vs) == 0 {
@@ -122,12 +108,17 @@ func (d *Driver) Open(url *url.URL) int32 {
 		b.Reset()
 	}
 
-	return amelie_open(d.amelie, unsafe.Pointer(cString(path)), int32(argc), unsafe.Pointer(unsafe.SliceData(argv)))
+	return amelie_open(d.amelie, unsafe.Pointer(cString(dir)), int32(argc), unsafe.Pointer(unsafe.SliceData(argv)))
 }
 
 func (d *Driver) Connect() *Session {
+	var uri unsafe.Pointer
+	if !strings.HasPrefix(d.url, "file://") {
+		uri = unsafe.Pointer(cString(d.url))
+	}
+
 	return &Session{
-		session: amelie_connect(d.amelie, 0),
+		session: amelie_connect(d.amelie, uri),
 	}
 }
 

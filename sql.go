@@ -55,9 +55,9 @@ func OptionExecutor(ex Executor) OptionOpenDB {
 	}
 }
 
-func GetConnector(addr string, opts ...OptionOpenDB) driver.Connector {
+func GetConnector(url string, opts ...OptionOpenDB) driver.Connector {
 	c := connector{
-		addr:   addr,
+		url:    url,
 		driver: amelieDriver,
 	}
 
@@ -66,19 +66,19 @@ func GetConnector(addr string, opts ...OptionOpenDB) driver.Connector {
 	}
 
 	if c.executor == nil {
-		c.executor, _ = NewExecutor(addr)
+		c.executor, _ = NewExecutor(url)
 	}
 
 	return c
 }
 
-func OpenDB(addr string, opts ...OptionOpenDB) *sql.DB {
-	c := GetConnector(addr, opts...)
+func OpenDB(url string, opts ...OptionOpenDB) *sql.DB {
+	c := GetConnector(url, opts...)
 	return sql.OpenDB(c)
 }
 
 type connector struct {
-	addr     string
+	url      string
 	executor Executor
 	driver   *Driver
 }
@@ -106,11 +106,11 @@ func GetDefaultDriver() driver.Driver {
 
 type Driver struct{}
 
-func (d *Driver) Open(name string) (driver.Conn, error) {
+func (d *Driver) Open(url string) (driver.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	connector, err := d.OpenConnector(name)
+	connector, err := d.OpenConnector(url)
 	if err != nil {
 		return nil, err
 	}
@@ -118,8 +118,8 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 	return connector.Connect(ctx)
 }
 
-func (d *Driver) OpenConnector(addr string) (driver.Connector, error) {
-	executor, err := NewExecutor(addr)
+func (d *Driver) OpenConnector(url string) (driver.Connector, error) {
+	executor, err := NewExecutor(url)
 	if err != nil {
 		return nil, fmt.Errorf("new executor: %w", err)
 	}
@@ -359,7 +359,7 @@ type sqlTx struct {
 }
 
 func (tx *sqlTx) Begin() {
-	tx.sql.WriteString("begin;")
+	tx.sql.WriteString("begin")
 	tx.sql.WriteByte('\n')
 }
 
@@ -377,7 +377,7 @@ func (tx *sqlTx) AppendQuery(bs []byte) {
 }
 
 func (tx *sqlTx) Commit() error {
-	tx.sql.WriteString("commit;")
+	tx.sql.WriteString("end;")
 	query := tx.sql.String()
 
 	tx.conn.activeTx = nil
@@ -601,35 +601,44 @@ func toString(bs []byte) string {
 	return unsafe.String(&bs[0], len(bs))
 }
 
-func NewExecutor(addr string) (Executor, error) {
-	if strings.HasPrefix(addr, "file://") {
-		u, err := url.Parse(addr)
-		if err != nil {
-			return nil, fmt.Errorf("parse addr: %w", err)
-		}
+func NewExecutor(rawURL string) (Executor, error) {
+	url, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse url: %w", err)
+	}
 
-		driver := native.NewDriver()
-		if rc := driver.Open(u); rc > 0 {
+	query := url.Query()
+	mode := query.Get("mode")
+	query.Del("mode")
+	token := query.Get("token")
+	query.Del("token")
+	url.RawQuery = query.Encode()
+
+	if url.Scheme == "file" || mode == "native" {
+		driver := native.NewDriver(url.String())
+		if rc := driver.Open(); rc > 0 {
 			return nil, fmt.Errorf("open native driver (code: %v)", rc)
 		}
 		return NewNativeExecutor(driver), nil
 	}
 
-	return NewHTTPExecutor(addr, ""), nil
+	url.RawQuery = ""
+	return NewHTTPExecutor(url.String(), token), nil
 }
 
-func NewHTTPExecutor(addr string, authToken string) *HTTPExecutor {
+func NewHTTPExecutor(baseUrl string, authToken string) *HTTPExecutor {
+	execUrl, _ := url.JoinPath(baseUrl, "/v1/execute")
 	return &HTTPExecutor{
 		client:    &http.Client{},
-		addr:      addr,
-		execUrl:   addr + "/v1/execute",
+		url:       baseUrl,
+		execUrl:   execUrl,
 		authToken: authToken,
 	}
 }
 
 type HTTPExecutor struct {
 	client    *http.Client
-	addr      string
+	url       string
 	execUrl   string
 	authToken string
 }
@@ -718,7 +727,7 @@ func (s *NativeSession) ExecuteRaw(query []byte) *native.RequestResult {
 
 func (s *NativeSession) Execute(_ context.Context, query []byte) ([]byte, error) {
 	data, rc := s.ExecuteRaw(query).Wait()
-	if rc > 0 {
+	if rc != 200 && rc != 204 {
 		return nil, fmt.Errorf("execute sync (code: %v)", rc)
 	}
 
