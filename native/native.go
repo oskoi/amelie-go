@@ -25,10 +25,10 @@ var complete = purego.NewCallback(func(ptr unsafe.Pointer) {
 var (
 	amelie_init    func() uintptr
 	amelie_free    func(uintptr)
-	amelie_open    func(uintptr, unsafe.Pointer, int32, unsafe.Pointer) int32
+	amelie_open    func(uintptr, unsafe.Pointer, int, unsafe.Pointer) int
 	amelie_connect func(uintptr, unsafe.Pointer) uintptr
-	amelie_execute func(uintptr, unsafe.Pointer, int32, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
-	amelie_wait    func(uintptr, int32, unsafe.Pointer) int32
+	amelie_execute func(uintptr, unsafe.Pointer, int, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
+	amelie_wait    func(uintptr, int32, unsafe.Pointer) int
 )
 
 var registerLib = sync.OnceFunc(func() {
@@ -62,7 +62,7 @@ var registerLib = sync.OnceFunc(func() {
 
 type amelieArg struct {
 	data     uintptr
-	dataSize uint64
+	dataSize uint
 }
 
 func NewDriver(url string) *Driver {
@@ -79,7 +79,7 @@ type Driver struct {
 	url    string
 }
 
-func (d *Driver) Open() int32 {
+func (d *Driver) Open() int {
 	if !strings.HasPrefix(d.url, "file://") {
 		return amelie_open(d.amelie, nil, 0, nil)
 	}
@@ -108,7 +108,7 @@ func (d *Driver) Open() int32 {
 		b.Reset()
 	}
 
-	return amelie_open(d.amelie, unsafe.Pointer(cString(dir)), int32(argc), unsafe.Pointer(unsafe.SliceData(argv)))
+	return amelie_open(d.amelie, unsafe.Pointer(cString(dir)), argc, unsafe.Pointer(unsafe.SliceData(argv)))
 }
 
 func (d *Driver) Connect() *Session {
