@@ -47,9 +47,9 @@ var registerLib = sync.OnceFunc(func() {
 		libameliePath = path
 	}
 
-	libamelie, err := purego.Dlopen(libameliePath, purego.RTLD_LAZY|purego.RTLD_GLOBAL)
+	libamelie, err := purego.Dlopen(libameliePath, purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
-		panic(fmt.Sprintf("open libamelie.so: %s", err))
+		panic(fmt.Sprintf("open libamelie: %s", err))
 	}
 
 	purego.RegisterLibFunc(&amelie_init, libamelie, "amelie_init")
@@ -65,7 +65,7 @@ type amelieArg struct {
 	dataSize uint
 }
 
-func NewDriver(url string) *Driver {
+func NewDriver(url *url.URL) *Driver {
 	registerLib()
 
 	return &Driver{
@@ -76,21 +76,16 @@ func NewDriver(url string) *Driver {
 
 type Driver struct {
 	amelie uintptr
-	url    string
+	url    *url.URL
 }
 
 func (d *Driver) Open() int {
-	if !strings.HasPrefix(d.url, "file://") {
+	if d.url.Scheme != "amelie" {
 		return amelie_open(d.amelie, nil, 0, nil)
 	}
 
-	url, err := url.Parse(d.url)
-	if err != nil {
-		panic(fmt.Sprintf("invalid url: %s", err))
-	}
-
-	dir := url.Host + url.Path
-	args := url.Query()
+	dir := d.url.Host + d.url.Path
+	args := d.url.Query()
 	argc := len(args)
 	argv := make([]*byte, 0, argc)
 	b := strings.Builder{}
@@ -113,8 +108,8 @@ func (d *Driver) Open() int {
 
 func (d *Driver) Connect() *Session {
 	var uri unsafe.Pointer
-	if !strings.HasPrefix(d.url, "file://") {
-		uri = unsafe.Pointer(cString(d.url))
+	if d.url.Scheme != "amelie" {
+		uri = unsafe.Pointer(cString(d.url.String()))
 	}
 
 	return &Session{

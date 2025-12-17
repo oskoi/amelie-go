@@ -607,15 +607,19 @@ func NewExecutor(rawURL string) (Executor, error) {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}
 
+	if url.Scheme != "http" && !strings.HasPrefix(url.Scheme, "amelie") {
+		return nil, fmt.Errorf("unsupported url schema (expected: amelie:// or http(s)://")
+	}
+
 	query := url.Query()
-	mode := query.Get("mode")
-	query.Del("mode")
+	hasRemote := query.Has("remote")
+	query.Del("remote")
 	token := query.Get("token")
 	query.Del("token")
 	url.RawQuery = query.Encode()
 
-	if url.Scheme == "file" || mode == "native" {
-		driver := native.NewDriver(url.String())
+	if !hasRemote {
+		driver := native.NewDriver(url)
 		if rc := driver.Open(); rc > 0 {
 			return nil, fmt.Errorf("open native driver (code: %v)", rc)
 		}

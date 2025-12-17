@@ -15,11 +15,11 @@ func main() {
 	ctx := context.Background()
 
 	url := new(url.URL)
-	url.Scheme = "file"
+	url.Scheme = "amelie"
 	url.Path = "data"
 	args := url.Query()
 	// args.Add("token", "12345") Authorization JSON Web Tokens
-	args.Add("mode", "native")
+	// args.Add("remote", "")
 	args.Add("format", "json-obj")
 	args.Add("log_to_stdout", "false")
 	args.Add("wal_worker", "false")
