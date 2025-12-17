@@ -12,7 +12,7 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// amelie 0.7.0
+// amelie 0.8.0
 //
 //go:embed libs/libamelie.so
 var libamelieBytes []byte

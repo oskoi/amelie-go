@@ -17,13 +17,11 @@ func main() {
 	ctx := context.Background()
 
 	url := new(url.URL)
-	url.Scheme = "file"
+	url.Scheme = "amelie"
 	url.Path = "data"
 	args := url.Query()
 	// args.Add("token", "12345") Authorization JSON Web Tokens
-	args.Add("mode", "native")
-	args.Add("format", "json-obj")
-	args.Add("log_to_stdout", "true")
+	args.Add("log_to_stdout", "false")
 	args.Add("wal_worker", "false")
 	args.Add("wal_sync_on_create", "false")
 	args.Add("wal_sync_on_close", "false")
@@ -35,7 +33,7 @@ func main() {
 	url.RawQuery = args.Encode()
 
 	db, err := sql.Open("amelie", url.String())
-	// db, err := sql.Open("amelie", "http://localhost:3485")
+	// db, err := sql.Open("amelie", "http://localhost:3485/v1/db/main?executor=remote")
 	handleErr(err, "open")
 	defer db.Close()
 

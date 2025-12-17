@@ -19,8 +19,6 @@ func main() {
 	url.Path = "data"
 	args := url.Query()
 	// args.Add("token", "12345") Authorization JSON Web Tokens
-	// args.Add("remote", "")
-	args.Add("format", "json-obj")
 	args.Add("log_to_stdout", "false")
 	args.Add("wal_worker", "false")
 	args.Add("wal_sync_on_create", "false")
@@ -33,7 +31,7 @@ func main() {
 	url.RawQuery = args.Encode()
 
 	db, err := sql.Open("amelie", url.String())
-	// db, err := sql.Open("amelie", "http://localhost:3485")
+	// db, err := sql.Open("amelie", "http://localhost:3485/v1/db/main?executor=remote")
 	handleErr(err, "open")
 	defer db.Close()
 

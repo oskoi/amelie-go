@@ -612,13 +612,25 @@ func NewExecutor(rawURL string) (Executor, error) {
 	}
 
 	query := url.Query()
-	hasRemote := query.Has("remote")
-	query.Del("remote")
-	token := query.Get("token")
+
+	executor := query.Get("executor")
+	if url.Scheme == "amelie" {
+		executor = "native"
+	}
+	if executor != "native" && executor != "remote" {
+		return nil, fmt.Errorf("unsupported executor (expected: native or remote")
+	}
+	query.Del("executor")
+
+	authToken := query.Get("token")
 	query.Del("token")
+
+	query.Del("format")
+	query.Add("format", "full-pretty")
+
 	url.RawQuery = query.Encode()
 
-	if !hasRemote {
+	if executor == "native" {
 		driver := native.NewDriver(url)
 		if rc := driver.Open(); rc > 0 {
 			return nil, fmt.Errorf("open native driver (code: %v)", rc)
@@ -626,44 +638,41 @@ func NewExecutor(rawURL string) (Executor, error) {
 		return NewNativeExecutor(driver), nil
 	}
 
-	url.RawQuery = ""
-	return NewHTTPExecutor(url.String(), token), nil
+	return NewRemoteExecutor(url.String(), authToken), nil
 }
 
-func NewHTTPExecutor(baseUrl string, authToken string) *HTTPExecutor {
-	execUrl, _ := url.JoinPath(baseUrl, "/v1/execute")
-	return &HTTPExecutor{
+func NewRemoteExecutor(url string, authToken string) *RemoteExecutor {
+	return &RemoteExecutor{
 		client:    &http.Client{},
-		url:       baseUrl,
-		execUrl:   execUrl,
+		execUrl:   url,
 		authToken: authToken,
 	}
 }
 
-type HTTPExecutor struct {
+type RemoteExecutor struct {
 	client    *http.Client
-	url       string
 	execUrl   string
 	authToken string
 }
 
-func (ex *HTTPExecutor) Connect() Session {
-	return &HTTPSession{ex}
+func (ex *RemoteExecutor) Connect() Session {
+	return &RemoteSession{ex}
 }
 
-func (ex *HTTPExecutor) Close() {}
+func (ex *RemoteExecutor) Close() {}
 
-type HTTPSession struct {
-	*HTTPExecutor
+type RemoteSession struct {
+	*RemoteExecutor
 }
 
-func (c *HTTPSession) request(ctx context.Context, url string, bs []byte) (*http.Request, error) {
+func (c *RemoteSession) request(ctx context.Context, url string, bs []byte) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bs))
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "plain/text")
 
 	if len(c.authToken) > 0 {
 		req.Header.Set("Authorization", "Bearer "+c.authToken)
@@ -672,7 +681,7 @@ func (c *HTTPSession) request(ctx context.Context, url string, bs []byte) (*http
 	return req, nil
 }
 
-func (s *HTTPSession) Execute(ctx context.Context, query []byte) ([]byte, error) {
+func (s *RemoteSession) Execute(ctx context.Context, query []byte) ([]byte, error) {
 	req, err := s.request(ctx, s.execUrl, query)
 	if err != nil {
 		return nil, fmt.Errorf("request: %w", err)
@@ -689,17 +698,19 @@ func (s *HTTPSession) Execute(ctx context.Context, query []byte) ([]byte, error)
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	switch {
-	case res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNoContent:
+	switch res.StatusCode {
+	case http.StatusOK:
+		fallthrough
+	case http.StatusNoContent:
 		return bs, nil
-	case res.StatusCode == http.StatusForbidden:
+	case http.StatusForbidden:
 		return nil, ErrUnauthorized
 	default:
 		return nil, fetchError(bs)
 	}
 }
 
-func (s *HTTPSession) Close() {}
+func (s *RemoteSession) Close() {}
 
 func NewNativeExecutor(driver *native.Driver) *NativeExecutor {
 	return &NativeExecutor{

@@ -3,5 +3,5 @@
 package native
 
 func dumpEmbeddedLib() (path string, closer func() error, err error) {
-	panic("unsupported os (only linux)")
+	panic("unsupported os (native works only on linux)")
 }
