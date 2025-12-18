@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -25,10 +25,10 @@ var complete = purego.NewCallback(func(ptr unsafe.Pointer) {
 var (
 	amelie_init    func() uintptr
 	amelie_free    func(uintptr)
-	amelie_open    func(uintptr, unsafe.Pointer, int, unsafe.Pointer) int
-	amelie_connect func(uintptr, unsafe.Pointer) uintptr
-	amelie_execute func(uintptr, unsafe.Pointer, int, unsafe.Pointer, uintptr, unsafe.Pointer) uintptr
-	amelie_wait    func(uintptr, int32, unsafe.Pointer) int
+	amelie_open    func(uintptr, *byte, int, **byte) int
+	amelie_connect func(uintptr, *byte) uintptr
+	amelie_execute func(uintptr, *byte, int, uintptr, uintptr, *chan struct{}) uintptr
+	amelie_wait    func(uintptr, int32, *amelieArg) int
 )
 
 var registerLib = sync.OnceFunc(func() {
@@ -69,56 +69,65 @@ func NewDriver(url *url.URL) *Driver {
 	registerLib()
 
 	return &Driver{
-		amelie: amelie_init(),
-		url:    url,
+		env: amelie_init(),
+		url: url,
 	}
 }
 
 type Driver struct {
-	amelie uintptr
-	url    *url.URL
+	env uintptr
+	url *url.URL
 }
 
 func (d *Driver) Open() int {
 	if d.url.Scheme != "amelie" {
-		return amelie_open(d.amelie, nil, 0, nil)
+		return amelie_open(d.env, nil, 0, nil)
 	}
 
-	dir := d.url.Host + d.url.Path
-	args := d.url.Query()
-	argc := len(args)
+	argq := d.url.Query()
+	argc := len(argq)
 	argv := make([]*byte, 0, argc)
-	b := strings.Builder{}
-	for k, vs := range args {
+	args := make([]any, 0, argc)
+	for k, vs := range argq {
 		if len(vs) == 0 {
 			continue
 		}
-		b.Grow(len(k) + len(vs[0]) + 4)
-		b.WriteByte('-')
-		b.WriteByte('-')
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(vs[0])
-		argv = append(argv, cString(b.String()))
-		b.Reset()
+
+		bs := make([]byte, 0, len(k)+len(vs[0])+3)
+		bs = append(bs, '-', '-')
+		bs = append(bs, k...)
+		bs = append(bs, '=')
+		bs = append(bs, vs[0]...)
+		bs = cStringBytes(bs)
+
+		args = append(args, bs)
+		argv = append(argv, unsafe.SliceData(bs))
 	}
 
-	return amelie_open(d.amelie, unsafe.Pointer(cString(dir)), argc, unsafe.Pointer(unsafe.SliceData(argv)))
+	path := cStringBytes([]byte(d.url.Host + d.url.Path))
+	rc := amelie_open(d.env, unsafe.SliceData(path), argc, unsafe.SliceData(argv))
+
+	runtime.KeepAlive(args)
+
+	return rc
 }
 
 func (d *Driver) Connect() *Session {
-	var uri unsafe.Pointer
-	if d.url.Scheme != "amelie" {
-		uri = unsafe.Pointer(cString(d.url.String()))
+	var session uintptr
+	if d.url.Scheme == "amelie" {
+		session = amelie_connect(d.env, nil)
+	} else {
+		url := cStringBytes([]byte(d.url.String()))
+		session = amelie_connect(d.env, unsafe.SliceData(url))
 	}
 
 	return &Session{
-		session: amelie_connect(d.amelie, uri),
+		session: session,
 	}
 }
 
 func (d *Driver) Close() {
-	amelie_free(d.amelie)
+	amelie_free(d.env)
 }
 
 type Session struct {
@@ -150,7 +159,7 @@ func (r *RequestResult) Wait() ([]byte, int) {
 	<-r.done
 
 	result := new(amelieArg)
-	rc := amelie_wait(r.req, -1, unsafe.Pointer(result))
+	rc := amelie_wait(r.req, -1, result)
 	if result.dataSize == 0 {
 		return nil, int(rc)
 	}
@@ -160,7 +169,8 @@ func (r *RequestResult) Wait() ([]byte, int) {
 
 func (s *Session) Execute(query []byte) *RequestResult {
 	done := make(chan struct{})
-	req := amelie_execute(s.session, unsafe.Pointer(cByteString(query)), 0, nil, complete, unsafe.Pointer(&done))
+	query = cStringBytes(query)
+	req := amelie_execute(s.session, unsafe.SliceData(query), 0, 0, complete, &done)
 	return &RequestResult{req, done}
 }
 
@@ -168,30 +178,17 @@ func (s *Session) Close() {
 	amelie_free(s.session)
 }
 
-func hasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
-}
-
-func cString(name string) *byte {
-	if hasSuffix(name, "\x00") {
-		return &(*(*[]byte)(unsafe.Pointer(&name)))[0]
-	}
-	bs := make([]byte, len(name)+1)
-	copy(bs, name)
-	return &bs[0]
-}
-
-func cByteString(bs []byte) *byte {
+func cStringBytes(bs []byte) []byte {
 	if len(bs) == 0 {
 		bs = make([]byte, 1)
-		return &bs[0]
+		return bs
 	}
 	if bs[len(bs)-1] == '\x00' {
-		return &bs[0]
+		return bs
 	}
 	bs2 := make([]byte, len(bs)+1)
 	copy(bs2, bs)
-	return &bs2[0]
+	return bs2
 }
 
 func goStringBytes(c uintptr, size int) []byte {
