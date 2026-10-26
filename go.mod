@@ -6,3 +6,5 @@ require (
 	github.com/ebitengine/purego v0.9.1
 	golang.org/x/sys v0.35.0
 )
+
+retract [v0.0.0, v0.11.0] // use the default branch.
